@@ -15,7 +15,6 @@ class EnergyStationProtocol(IProtocol):
     number_uavs: int
     group: int
     _newer_group: bool
-    _never_again: bool
 
     def initialize(self) -> None:
         self.lamport_clock = 0
@@ -23,7 +22,6 @@ class EnergyStationProtocol(IProtocol):
         self.group = 1
         self._log = logging.getLogger()
         self._newer_group = True
-        self._never_again = False
 
     def handle_timer(self, timer: str) -> None:
         self._log.info(f"There are {self.number_uavs} UAVs in the group")
@@ -38,8 +36,7 @@ class EnergyStationProtocol(IProtocol):
         self._update_clock_on_receive(default_message.lamport_clock)
         self.number_uavs += 1
 
-        if self._newer_group and not self._never_again:
-            self._never_again = True
+        if self._newer_group:
             self._newer_group = False
             self.provider.schedule_timer(
                 "",

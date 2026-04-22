@@ -45,7 +45,7 @@ class MobilityPlugin:
         if target_position is None:
             target_position = self._mission[self.current_waypoint]
 
-        return squared_distance(current_position, target_position) <= self._configuration.tolerance ** 2
+        return squared_distance(current_position, target_position) <= self._configuration.distance_tolerance ** 2
 
     def _progress_current_waypoint(self) -> None:
         if (
