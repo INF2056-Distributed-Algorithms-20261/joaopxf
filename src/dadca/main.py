@@ -29,8 +29,8 @@ def main():
     builder.add_node(UAVProtocol, (0, 0, 0))
     builder.add_node(UAVProtocol, (0, 0, 0))
     builder.add_node(UAVProtocol, (0, 0, 0))
-    # builder.add_node(UAVProtocol, (0, 0, 0))
-    # builder.add_node(UAVProtocol, (0, 0, 0))
+    builder.add_node(UAVProtocol, (0, 0, 0))
+    builder.add_node(UAVProtocol, (0, 0, 0))
 
     # Instantiating ground station at (0,0,0)
     builder.add_node(GroundStationProtocol, (0, 0, 0))
