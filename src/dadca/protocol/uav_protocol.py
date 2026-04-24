@@ -103,13 +103,11 @@ class UAVProtocol(IProtocol):
         elif default_message.label == Message.ENERGY_STATION:
             message = EnergyStationMessage.model_validate_json(message)
             self._mutual_exclusion_plugin.number_nodes = message.number_uavs
-            self._mutual_exclusion_plugin.priority = 1/self._battery_plugin.battery
             entry_critical_section_message = self._build_entry_critical_section_message()
             self._broadcast(entry_critical_section_message)
 
         elif default_message.label == Message.ENTRY_CRITICAL_SECTION:
             message = EntryCriticalSectionMessage.model_validate_json(message)
-            self._log.info(f"Mensagem de {default_message.sender.id} ({message.priority}) para {self.provider.get_id()} ({self._mutual_exclusion_plugin.priority})")
             _id = message.sender.id
             if self._mutual_exclusion_plugin.compare_priority(message.priority, _id):
                 self._mutual_exclusion_plugin.waiter_nodes.append(_id)
@@ -120,8 +118,6 @@ class UAVProtocol(IProtocol):
         elif default_message.label == Message.ACKNOWLEDGEMENT:
             message = AcknowledgementMessage.model_validate_json(message)
             self._mutual_exclusion_plugin.acknowledgments.append(message.sender.id)
-            self._log.info(f"Eu tenho os seguintes acknowledgments: {self._mutual_exclusion_plugin.acknowledgments}")
-
             if self._mutual_exclusion_plugin.check_all_acknolewdgements():
                 self._mobility_plugin.move_to_position(ENERGY_STATION_POSITION)
 
@@ -158,6 +154,7 @@ class UAVProtocol(IProtocol):
         ):
             default_message = self._build_default_message()
             self._mutual_exclusion_plugin.ask_number_nodes_to_reply(default_message)
+            self._mutual_exclusion_plugin.priority = 1 / self._battery_plugin.battery
             self.operation_stage = OperationStage.RECHARGE
 
         elif (
