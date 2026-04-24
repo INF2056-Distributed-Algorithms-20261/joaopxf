@@ -76,11 +76,14 @@ class UAVProtocol(IProtocol):
                 self._battery_plugin.recharge_battery()
                 self.provider.schedule_timer(
                     OperationStage.RECHARGE.value,
-                    self.provider.current_time() +1
+                    self.provider.current_time() + 1
                 )
             else:
-                self._mobility_plugin.move_to_position(self.waiting_position)
-                self._mutual_exclusion_plugin.notify_waiter_nodes()
+                return_waypoint = self._mobility_plugin.current_waypoint
+                return_direction = self._mobility_plugin.current_direction
+                self._mobility_plugin.start_mission(return_waypoint, PATH, return_direction)
+                message = self._build_acknowledgement_message()
+                self._mutual_exclusion_plugin.notify_waiter_nodes(message)
 
         elif timer == "SWAP_DIRECTION":
             self.ready_to_swap = True
@@ -162,6 +165,7 @@ class UAVProtocol(IProtocol):
             and _has_reached(current_position, ENERGY_STATION_POSITION)
         ):
             self.provider.schedule_timer(self.operation_stage.value, self.provider.current_time())
+            self.operation_stage = OperationStage.MISSION_START
 
     def _build_packet_message(self) -> PacketMessage:
         return PacketMessage.model_construct(

@@ -51,7 +51,8 @@ class BatteryPlugin:
     def recharge_battery(self):
         if self.battery < 100:
             self.battery += self._configuration.charge_per_time_rate
-        else:
+
+        if self.battery > 100:
             self.battery = 100
             self._logger.info("Battery fully charged. Agent is returning to mission")
 

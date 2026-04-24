@@ -22,4 +22,5 @@ class OperationStage(Enum):
     DATA_COLLECTION = "DATA_COLLECTION"      # Movement along the pathline to collect data from sensors
     RECHARGE = "RECHARGE"
     MISSION_START = "MISSION_START"          # Initial flight from the ground station to the starting point of the pathline
+    MISSION_RETURN = "MISSION_RETURN"
     WAIT_FOR_RECHARGE = "WAIT_FOR_RECHARGE"
