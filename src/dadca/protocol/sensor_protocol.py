@@ -4,9 +4,9 @@ from gradysim.protocol.interface import IProtocol
 from gradysim.protocol.messages.communication import SendMessageCommand
 from gradysim.protocol.messages.telemetry import Telemetry
 
-from src.dadca.domain.package_message import PacketMessage
-from src.dadca.domain.uav_message import UAVMessage
-from src.dadca.domain.default_message import Sender, DefaultMessage
+from src.dadca.message.packet_message import PacketMessage
+from src.dadca.message.uav_message import UAVMessage
+from src.dadca.message.default_message import Sender, DefaultMessage
 
 from src.dadca.constant import Agent
 
@@ -42,10 +42,6 @@ class SensorProtocol(IProtocol):
             )
             command = SendMessageCommand(response.model_dump_json(), message.sender.id)
             self.provider.send_communication_command(command)
-
-            if response.packet_count != 0:
-                # logging.info(f"Sent {response.packet_count} packets to UAV {default_message.sender.id}")
-                pass
 
             self.packet_count = 0
 

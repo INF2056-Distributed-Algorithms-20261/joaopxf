@@ -8,7 +8,6 @@ from gradysim.protocol.plugin.dispatcher import create_dispatcher
 from gradysim.protocol.position import squared_distance, Position
 
 from src.dadca.config import ENERGY_STATION_POSITION, NUMBER_UVAS, AERIAL_ENERGY_STATION_POSITION, DIAMETER
-from src.dadca.constant import Timer
 from src.dadca.plugin.battery_configuration import BatteryConfiguration
 from src.geometry.point import Point
 from src.geometry.vector import Vector
@@ -39,18 +38,8 @@ class BatteryPlugin:
             current_position = telemetry.current_position
 
             if self._previous_position:
-                self._monitory_battery_loss(current_position)
-
-            if self.is_critical:
-                if not self._at_energy_station_waiting_area:
-                    self._monitory_energy_station_waiting_area(current_position)
-
-                if not self._at_energy_station:
-                    self._monitory_energy_station(current_position)
-
-            else:
-                if self._critical_battery_position:
-                    self._monitory_return(current_position)
+                battery_cost = self._compute_battery_cost(self._previous_position, current_position)
+                self.battery -= battery_cost
 
             self._previous_position = current_position
 
@@ -68,7 +57,7 @@ class BatteryPlugin:
 
         if (
             self.is_critical is False
-            and self._has_reached_critical_battery(current_position)
+            and self.has_reached_critical_battery(current_position)
         ):
             self.is_critical = True
             self._critical_battery_position = Point(*current_position)
@@ -124,7 +113,7 @@ class BatteryPlugin:
         mobility_command = GotoCoordsMobilityCommand(*ENERGY_STATION_POSITION)
         self._instance.provider.send_mobility_command(mobility_command)
 
-    def _has_reached_critical_battery(self, current_position: Position) -> bool:
+    def has_reached_critical_battery(self, current_position: Position) -> bool:
         """
         Check if battery station is reacheable
 
