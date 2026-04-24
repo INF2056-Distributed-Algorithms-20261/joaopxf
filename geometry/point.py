@@ -1,5 +1,5 @@
 from typing import NamedTuple
-from src.geometry.vector import Vector
+from geometry.vector import Vector
 
 
 class Point(NamedTuple):

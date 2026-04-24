@@ -25,7 +25,7 @@ def main():
     builder.add_node(SensorProtocol, (350, 0, 0))
     builder.add_node(SensorProtocol, (450, 0, 0))
 
-    # Instantiating 3 UAVs
+    # Instantiating 5 UAVs
     builder.add_node(UAVProtocol, (0, 0, 0))
     builder.add_node(UAVProtocol, (0, 0, 0))
     builder.add_node(UAVProtocol, (0, 0, 0))

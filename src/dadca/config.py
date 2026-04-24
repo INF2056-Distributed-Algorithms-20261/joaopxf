@@ -1,4 +1,4 @@
-from src.geometry.point import Point
+from geometry.point import Point
 
 initial_waypoints = [1, 2, 3, 4, 5]
 PATH = [
