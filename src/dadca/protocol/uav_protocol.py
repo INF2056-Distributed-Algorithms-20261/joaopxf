@@ -1,20 +1,21 @@
 import logging
 
 from gradysim.protocol.interface import IProtocol
-from gradysim.protocol.messages.communication import BroadcastMessageCommand, SendMessageCommand
+from gradysim.protocol.messages.communication import BroadcastMessageCommand
 from gradysim.protocol.messages.telemetry import Telemetry
 from gradysim.protocol.position import squared_distance, Position
 from typing_extensions import NamedTuple
 
 from src.dadca.constant import OperationStage, Message
-from src.dadca.config import initial_waypoints, PATH, ENERGY_STATION_ID, NUMBER_UVAS
+from src.dadca.config import initial_waypoints, PATH, NUMBER_UVAS, ENERGY_STATION_POSITION
 from src.dadca.constant import Agent
-from src.dadca.message.acknowledge_message import AcknowledgeMessage
+from src.dadca.message.acknowledgement_message import AcknowledgementMessage
+from src.dadca.message.energy_station_message import EnergyStationMessage
+from src.dadca.message.entry_critical_section_message import EntryCriticalSectionMessage
 from src.dadca.message.packet_message import PacketMessage
 from src.dadca.plugin.battery_configuration import BatteryConfiguration
 from src.dadca.plugin.battery_plugin import BatteryPlugin
 from src.dadca.plugin.mobility_configuration import MobilityConfiguration
-from src.dadca.message.uav_message import UAVMessage
 from src.dadca.message.default_message import Sender, DefaultMessage
 from src.dadca.plugin.mobility_plugin import MobilityPlugin
 from src.dadca.plugin.mutual_exclusion_plugin import MutualExclusionPlugin
@@ -67,58 +68,22 @@ class UAVProtocol(IProtocol):
         elif timer == OperationStage.DATA_COLLECTION.value:
             if self.operation_stage == OperationStage.DATA_COLLECTION:
                 self.lamport_clock += 1
-                message = PacketMessage.model_construct(
-                    packet_count=self.packet_count,
-                    lamport_clock=self.lamport_clock,
-                    sender=Sender.model_construct(
-                        agent=Agent.UAV,
-                        id=self.provider.get_id()
-                    )
-                )
+                message = self._build_packet_message()
                 self._send_heartbeat(message)
+
+        elif timer == OperationStage.RECHARGE.value:
+            if self._battery_plugin.battery < 100:
+                self._battery_plugin.recharge_battery()
+                self.provider.schedule_timer(
+                    OperationStage.RECHARGE.value,
+                    self.provider.current_time() +1
+                )
+            else:
+                self._mobility_plugin.move_to_position(self.waiting_position)
+                self._mutual_exclusion_plugin.notify_waiter_nodes()
 
         elif timer == "SWAP_DIRECTION":
             self.ready_to_swap = True
-        #
-        # elif timer == Timer.RETURN_MISSION.value:
-        #     self._mutual_exclusion_plugin.critical_section_status = CriticalSectionStatus.RELEASED
-        #     for _id in self._mutual_exclusion_plugin.repliers:
-        #         self._reply_entry(_id)
-        #
-        #     self._battery_plugin.move_to_critical_battery_position()
-        #     self._mobility_plugin.start_mission(
-        #         initial_waypoint=self._mobility_plugin.current_waypoint,
-        #         path=PATH,
-        #         direction=self._mobility_plugin.current_direction,
-        #     )
-
-        # elif timer == Timer.RECHARGE_BATTERY.value:
-        #     self._battery_plugin.recharge_battery()
-        #
-        # elif timer == Timer.REQUEST_ENERGY_STATION.value:
-        #     self._request_information_from_energy_station()
-        #     self._mutual_exclusion_plugin.evaluate_entry_score(
-        #         self.lamport_clock,
-        #         self._battery_plugin.battery
-        #     )
-        #     self._mutual_exclusion_plugin.critical_section_status = CriticalSectionStatus.WANTED
-        #
-        # elif timer == Timer.CRITICAL_SECTION.value:
-        #     if (
-        #         self._mutual_exclusion_plugin.critical_section_status == CriticalSectionStatus.WANTED
-        #         and self._mutual_exclusion_plugin.check_all_replies()
-        #     ):
-        #         self._mutual_exclusion_plugin.critical_section_status = CriticalSectionStatus.HELD
-        #         self._battery_plugin.move_to_energy_station()
-        #
-        #     else:
-        #         self.provider.schedule_timer(
-        #             Timer.CRITICAL_SECTION.value,
-        #             self.provider.current_time() + 1
-        #         )
-        #
-        # elif timer == Timer.CLEAR_RENDEZVOUS.value:
-        #     self._mobility_plugin.ready_to_rendesvouz = True
 
         else:
             raise NotImplementedError(f"There is no current support to timer {timer}")
@@ -135,35 +100,33 @@ class UAVProtocol(IProtocol):
                 self.ready_to_swap = False
                 self.provider.schedule_timer("SWAP_DIRECTION", self.provider.current_time() + 2)
 
-        if default_message.label == Message.ACKNOWLEDGE:
-            message = AcknowledgeMessage.model_validate_json(message)
+        elif default_message.label == Message.ENERGY_STATION:
+            message = EnergyStationMessage.model_validate_json(message)
+            self._mutual_exclusion_plugin.number_nodes = message.number_uavs
+            self._mutual_exclusion_plugin.priority = 1/self._battery_plugin.battery
+            entry_critical_section_message = self._build_entry_critical_section_message()
+            self._broadcast(entry_critical_section_message)
 
-            # if self._mutual_exclusion_plugin.critical_section_status == CriticalSectionStatus.WANTED:
+        elif default_message.label == Message.ENTRY_CRITICAL_SECTION:
+            message = EntryCriticalSectionMessage.model_validate_json(message)
+            self._log.info(f"Mensagem de {default_message.sender.id} ({message.priority}) para {self.provider.get_id()} ({self._mutual_exclusion_plugin.priority})")
+            _id = message.sender.id
+            if self._mutual_exclusion_plugin.compare_priority(message.priority, _id):
+                self._mutual_exclusion_plugin.waiter_nodes.append(_id)
+            else:
+                response = self._build_acknowledgement_message()
+                self._mutual_exclusion_plugin.reply_node(response, _id)
 
-                # if (
-                #     self._mutual_exclusion_plugin.critical_section_status == CriticalSectionStatus.WANTED
-                #     and self._mutual_exclusion_plugin.compare_entry_score(
-                #         message.entry_score,
-                #         message.sender.id
-                # )
-                #     or self._mutual_exclusion_plugin.critical_section_status == CriticalSectionStatus.HELD
-                # ):
-                #     self._mutual_exclusion_plugin.repliers.add(message.sender.id)
-                #     self.provider.schedule_timer(
-                #         Timer.CRITICAL_SECTION.value,
-                #         self.provider.current_time()
-                #     )
+        elif default_message.label == Message.ACKNOWLEDGEMENT:
+            message = AcknowledgementMessage.model_validate_json(message)
+            self._mutual_exclusion_plugin.acknowledgments.append(message.sender.id)
+            self._log.info(f"Eu tenho os seguintes acknowledgments: {self._mutual_exclusion_plugin.acknowledgments}")
+
+            if self._mutual_exclusion_plugin.check_all_acknolewdgements():
+                self._mobility_plugin.move_to_position(ENERGY_STATION_POSITION)
 
         elif default_message.sender.agent == Agent.GROUND_STATION:
             self.packet_count = 0
-
-        # elif default_message.sender.agent == Agent.ENERGY_STATION:
-        #     message = EnergyStationMessage.model_validate_json(message)
-        #     self._mutual_exclusion_plugin.number_uavs = message.number_uavs
-        #     self._broadcast()
-
-        # else:
-        #     raise NotImplementedError(f"There is no current support to agent {default_message.sender.agent}")
 
     def handle_telemetry(self, telemetry: Telemetry) -> None:
         current_position = telemetry.current_position
@@ -193,7 +156,54 @@ class UAVProtocol(IProtocol):
             self.operation_stage == OperationStage.WAIT_FOR_RECHARGE
             and _has_reached(current_position, self.waiting_position)
         ):
-            pass
+            default_message = self._build_default_message()
+            self._mutual_exclusion_plugin.ask_number_nodes_to_reply(default_message)
+            self.operation_stage = OperationStage.RECHARGE
+
+        elif (
+            self.operation_stage == OperationStage.RECHARGE
+            and _has_reached(current_position, ENERGY_STATION_POSITION)
+        ):
+            self.provider.schedule_timer(self.operation_stage.value, self.provider.current_time())
+
+    def _build_packet_message(self) -> PacketMessage:
+        return PacketMessage.model_construct(
+            packet_count=self.packet_count,
+            lamport_clock=self.lamport_clock,
+            sender=Sender.model_construct(
+                agent=Agent.UAV,
+                id=self.provider.get_id()
+            )
+        )
+
+    def _build_default_message(self) -> DefaultMessage:
+        return DefaultMessage.model_construct(
+            packet_count=self.packet_count,
+            lamport_clock=self.lamport_clock,
+            sender=Sender.model_construct(
+                agent=Agent.UAV,
+                id=self.provider.get_id()
+            )
+        )
+
+    def _build_entry_critical_section_message(self):
+        return EntryCriticalSectionMessage.model_construct(
+            priority=self._mutual_exclusion_plugin.priority,
+            lamport_clock=self.lamport_clock,
+            sender=Sender.model_construct(
+                agent=Agent.UAV,
+                id=self.provider.get_id()
+            )
+        )
+
+    def _build_acknowledgement_message(self):
+        return AcknowledgementMessage.model_construct(
+            lamport_clock=self.lamport_clock,
+            sender=Sender.model_construct(
+                agent=Agent.UAV,
+                id=self.provider.get_id()
+            )
+        )
 
     def _start_flight(self):
         self.provider.schedule_timer(
@@ -211,30 +221,6 @@ class UAVProtocol(IProtocol):
 
     def _broadcast(self, message: DefaultMessage) -> None:
         command = BroadcastMessageCommand(message.model_dump_json())
-        self.provider.send_communication_command(command)
-
-    def _request_information_from_energy_station(self):
-        message = DefaultMessage.model_construct(
-            lamport_clock=self.lamport_clock,
-            sender=Sender.model_construct(
-                agent=Agent.UAV,
-                id=self.provider.get_id()
-            )
-        )
-        command = SendMessageCommand(message.model_dump_json(), ENERGY_STATION_ID)
-        self.provider.send_communication_command(command)
-
-    def _reply_entry(self, _id: int):
-        message = UAVMessage.model_construct(
-            lamport_clock=self.lamport_clock,
-            packet_count=self.packet_count,
-            entry_score=self._mutual_exclusion_plugin.entry_score,
-            sender=Sender.model_construct(
-                agent=Agent.UAV,
-                id=self.provider.get_id()
-            )
-        )
-        command = SendMessageCommand(message.model_dump_json(), _id)
         self.provider.send_communication_command(command)
 
     def _update_clock_on_receive(self, lamport_clock: int) -> None:

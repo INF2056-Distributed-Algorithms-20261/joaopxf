@@ -5,7 +5,6 @@ from gradysim.protocol.messages.communication import SendMessageCommand
 from gradysim.protocol.messages.telemetry import Telemetry
 
 from src.dadca.message.packet_message import PacketMessage
-from src.dadca.message.uav_message import UAVMessage
 from src.dadca.message.default_message import Sender, DefaultMessage
 
 from src.dadca.constant import Agent

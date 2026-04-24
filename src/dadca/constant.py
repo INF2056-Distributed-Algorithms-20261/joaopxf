@@ -7,14 +7,11 @@ class Agent(Enum):
     SENSOR = auto()
     UAV = auto()
 
-class CriticalSectionStatus(Enum):
-    RELEASED = auto()
-    WANTED = auto()
-    HELD = auto()
-
 class Message(Enum):
-    ACKNOWLEDGE = auto()
+    ACKNOWLEDGEMENT = auto()
     DEFAULT = auto()
+    ENERGY_STATION = auto()
+    ENTRY_CRITICAL_SECTION = auto()
     PACKET = auto()
 
 class Movement(Enum):

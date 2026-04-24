@@ -1,9 +1,13 @@
 import logging
 
 from gradysim.protocol.interface import IProtocol
+from gradysim.protocol.messages.communication import SendMessageCommand
 
 from gradysim.protocol.plugin.dispatcher import create_dispatcher
-from src.dadca.constant import CriticalSectionStatus
+
+from src.dadca.config import ENERGY_STATION_ID
+from src.dadca.message.acknowledgement_message import AcknowledgementMessage
+from src.dadca.message.default_message import DefaultMessage
 
 
 class MutualExclusionPlugin:
@@ -15,21 +19,31 @@ class MutualExclusionPlugin:
         self._instance = protocol
         self._logger = logging.getLogger()
 
-        self.number_uavs: int | None = None
-        self.entry_score: int | None = None
-        self.repliers: set[int] = set()
-        self.critical_section_status: CriticalSectionStatus = CriticalSectionStatus.RELEASED
+        self.priority: float = 0
+        self.number_nodes: int  = 0
+        self.waiter_nodes: list[int] = []
+        self.acknowledgments: list[int] = []
 
-    def evaluate_entry_score(self, lamport_clock: int, battery: float):
-        self.entry_score = 0.5 / lamport_clock + 0.5 / battery
+    def ask_number_nodes_to_reply(self, message: DefaultMessage):
+        command = SendMessageCommand(message.model_dump_json(), ENERGY_STATION_ID)
+        self._instance.provider.send_communication_command(command)
 
-    def compare_entry_score(self, entry_score: float, _id: int) -> bool:
-        if self.entry_score < entry_score:
+    def reply_node(self, message: AcknowledgementMessage, _id: int):
+        command = SendMessageCommand(message.model_dump_json(), _id)
+        self._instance.provider.send_communication_command(command)
+
+    def notify_waiter_nodes(self, message: AcknowledgementMessage):
+        for waiter_node in self.waiter_nodes:
+            command = SendMessageCommand(message.model_dump_json(), waiter_node)
+            self._instance.provider.send_communication_command(command)
+
+    def compare_priority(self, priority: float, _id: int) -> bool:
+        if self.priority > priority:
             return True
-        elif self.entry_score > entry_score:
+        elif self.priority < priority:
             return False
         else:
             return self._instance.provider.get_id() < _id
 
-    def check_all_replies(self) -> bool:
-        return len(self.repliers) == self.number_uavs - 1
+    def check_all_acknolewdgements(self) -> bool:
+        return len(self.acknowledgments) == self.number_nodes - 1
