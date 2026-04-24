@@ -84,6 +84,8 @@ class UAVProtocol(IProtocol):
                 self._mobility_plugin.start_mission(return_waypoint, PATH, return_direction)
                 message = self._build_acknowledgement_message()
                 self._mutual_exclusion_plugin.notify_waiter_nodes(message)
+                self._mutual_exclusion_plugin.acknowledgements = []
+                self._mutual_exclusion_plugin.waiter_nodes = []
 
         elif timer == "SWAP_DIRECTION":
             self.ready_to_swap = True
@@ -120,8 +122,8 @@ class UAVProtocol(IProtocol):
 
         elif default_message.label == Message.ACKNOWLEDGEMENT:
             message = AcknowledgementMessage.model_validate_json(message)
-            self._mutual_exclusion_plugin.acknowledgments.append(message.sender.id)
-            if self._mutual_exclusion_plugin.check_all_acknolewdgements():
+            self._mutual_exclusion_plugin.acknowledgements.append(message.sender.id)
+            if self._mutual_exclusion_plugin.check_all_acknowledgements():
                 self._mobility_plugin.move_to_position(ENERGY_STATION_POSITION)
 
         elif default_message.sender.agent == Agent.GROUND_STATION:

@@ -22,7 +22,7 @@ class MutualExclusionPlugin:
         self.priority: float = 0
         self.number_nodes: int  = 0
         self.waiter_nodes: list[int] = []
-        self.acknowledgments: list[int] = []
+        self.acknowledgements: list[int] = []
 
     def ask_number_nodes_to_reply(self, message: DefaultMessage):
         command = SendMessageCommand(message.model_dump_json(), ENERGY_STATION_ID)
@@ -45,5 +45,8 @@ class MutualExclusionPlugin:
         else:
             return self._instance.provider.get_id() < _id
 
-    def check_all_acknolewdgements(self) -> bool:
-        return len(self.acknowledgments) == self.number_nodes - 1
+    def check_all_acknowledgements(self) -> bool:
+        return (
+            len(self.acknowledgements) == self.number_nodes - 1
+            or self.number_nodes == 1
+        )
