@@ -112,9 +112,12 @@ class UAVProtocol(IProtocol):
 
         elif default_message.label == Message.ENERGY_STATION:
             message = EnergyStationMessage.model_validate_json(message)
-            self._mutual_exclusion_plugin.number_nodes = message.number_uavs
-            entry_critical_section_message = self._build_priority_critical_section_message()
-            self._broadcast(entry_critical_section_message)
+            self._mutual_exclusion_plugin.set_neighbors(message.group)
+            if len(self._mutual_exclusion_plugin.neighbors) == 0:
+                self._mobility_plugin.move_to_position(ENERGY_STATION_POSITION)
+            else:
+                response = self._build_priority_critical_section_message()
+                self._mutual_exclusion_plugin.send_message_to_nodes(response)
 
         elif default_message.label == Message.PRIORITY_CRITICAL_SECTION:
             message = PriorityCriticalSectionMessage.model_validate_json(message)

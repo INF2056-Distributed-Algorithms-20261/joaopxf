@@ -15,7 +15,7 @@ class EnergyStationProtocol(IProtocol):
     _newer_group: bool
     lamport_clock: int
     last_releases: int
-    group: int
+    group_number: int
     uavs_per_group: dict[int, list[int]]
 
     def initialize(self) -> None:
@@ -23,18 +23,20 @@ class EnergyStationProtocol(IProtocol):
         self._newer_group = True
         self.lamport_clock = 0
         self.last_releases = 0
-        self.group = 1
+        self.group_number = 1
 
         self.uavs_per_group = defaultdict(list)
 
     def handle_timer(self, timer: str) -> None:
         if timer == EnergyStationOperation.CHANGE_GROUP.value:
-            self._log.info(f"There are {len(self.uavs_per_group[self.group])} UAVs in group {self.group}")
+            self._log.info(f"There are {len(self.uavs_per_group[self.group_number])} UAVs in group {self.group_number}")
             self._newer_group = True
-            self.group += 1
+            self.group_number += 1
 
-            if self.last_releases == 0:
-                message = self._build_energy_station_message()
+            if len(self.uavs_per_group) == 1:
+                key = next(iter(self.uavs_per_group))
+                group = self.uavs_per_group[key]
+                message = self._build_energy_station_message(group)
                 self._broadcast(message)
 
     def handle_packet(self, message: str) -> None:
@@ -42,7 +44,7 @@ class EnergyStationProtocol(IProtocol):
         self._update_clock_on_receive(message.lamport_clock)
 
         if message.label == Message.NUMBER_NODES_CRITICAL_SECTION:
-            self.uavs_per_group[self.group].append(message.sender.id)
+            self.uavs_per_group[self.group_number].append(message.sender.id)
             if self._newer_group:
                 self._newer_group = False
                 self.provider.schedule_timer(
@@ -53,6 +55,7 @@ class EnergyStationProtocol(IProtocol):
         elif message.label == Message.RELEASE_CRITICAL_SECTION:
             self.last_releases += 1
             key = next(iter(self.uavs_per_group))
+            self._log.info(f"Group {key} releases: {self.last_releases}/{len(self.uavs_per_group[key])}")
             if self.last_releases == len(self.uavs_per_group[key]):
                 self.uavs_per_group.pop(key)
                 self.last_releases = 0
@@ -69,12 +72,10 @@ class EnergyStationProtocol(IProtocol):
     def finish(self) -> None:
         pass
 
-    def _build_energy_station_message(self) -> DefaultMessage:
-        key = next(iter(self.uavs_per_group))
+    def _build_energy_station_message(self, group: list[int]) -> DefaultMessage:
         return EnergyStationMessage.model_construct(
             lamport_clock=self.lamport_clock,
-            group=self.group,
-            number_uavs=len(self.uavs_per_group[key]),
+            group=group,
             sender=Sender.model_construct(
                 agent=Agent.ENERGY_STATION,
                 id=self.provider.get_id()
@@ -83,9 +84,11 @@ class EnergyStationProtocol(IProtocol):
 
     def _reply_to_waiting_group(self):
         key = next(iter(self.uavs_per_group))
-        message = self._build_energy_station_message()
+        group = self.uavs_per_group[key]
+        message = self._build_energy_station_message(group)
 
         for _id in self.uavs_per_group[key]:
+            self._log.info(f"Sending message to {_id} from group {key}")
             command = SendMessageCommand(message.model_dump_json(), _id)
             self.provider.send_communication_command(command)
 

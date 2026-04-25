@@ -8,6 +8,7 @@ from gradysim.protocol.plugin.dispatcher import create_dispatcher
 from src.dadca.config import ENERGY_STATION_ID
 from src.dadca.message.acknowledgement_message import AcknowledgementMessage
 from src.dadca.message.number_nodes_critical_section_message import NumberNodesCriticalSectionMessage
+from src.dadca.message.priority_critical_section_message import PriorityCriticalSectionMessage
 from src.dadca.message.release_critical_section_message import ReleaseCriticalSectionMessage
 
 
@@ -21,7 +22,7 @@ class MutualExclusionPlugin:
         self._logger = logging.getLogger()
 
         self.priority: float = 0
-        self.number_nodes: int  = 0
+        self.neighbors: list[int] = []
         self.waiter_nodes: list[int] = []
         self.acknowledgements: list[int] = []
 
@@ -31,6 +32,15 @@ class MutualExclusionPlugin:
     ):
         command = SendMessageCommand(message.model_dump_json(), ENERGY_STATION_ID)
         self._instance.provider.send_communication_command(command)
+
+    def set_neighbors(self, group: list[int]):
+        neighbors = set(group) - {self._instance.provider.get_id()}
+        self.neighbors = list(neighbors)
+
+    def send_message_to_nodes(self, message: PriorityCriticalSectionMessage):
+        for _id in self.neighbors:
+            command = SendMessageCommand(message.model_dump_json(), _id)
+            self._instance.provider.send_communication_command(command)
 
     def reply_node(self, message: AcknowledgementMessage, _id: int):
         command = SendMessageCommand(message.model_dump_json(), _id)
@@ -51,11 +61,11 @@ class MutualExclusionPlugin:
 
     def check_all_acknowledgements(self) -> bool:
         return (
-            len(self.acknowledgements) == self.number_nodes - 1
-            or self.number_nodes == 1
+            len(self.acknowledgements) == len(self.neighbors)
+            or len(self.neighbors) == 0
         )
 
     def reset(self):
-        self.number_nodes = 0
+        self.neighbors = []
         self.waiter_nodes = []
         self.acknowledgements = []
