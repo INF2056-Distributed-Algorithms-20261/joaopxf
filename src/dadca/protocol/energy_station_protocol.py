@@ -1,49 +1,63 @@
 import logging
+from collections import defaultdict
 
 from gradysim.protocol.interface import IProtocol
 from gradysim.protocol.messages.communication import BroadcastMessageCommand, SendMessageCommand
 from gradysim.protocol.messages.telemetry import Telemetry
 
-from src.dadca.constant import Agent, Message
-from src.dadca.message.default_message import Sender, DefaultMessage
-from src.dadca.message.energy_station_message import EnergyStationMessage
+from src.dadca.constant import Agent, Message, EnergyStationOperation
+from src.dadca.message.default_message import Sender
+from src.dadca.message.energy_station_message import DefaultMessage, EnergyStationMessage
 
 
 class EnergyStationProtocol(IProtocol):
     _log: logging.Logger
-    lamport_clock: int
-    number_uavs: int
-    group: int
     _newer_group: bool
+    lamport_clock: int
+    last_releases: int
+    group: int
+    uavs_per_group: dict[int, list[int]]
 
     def initialize(self) -> None:
-        self.lamport_clock = 0
-        self.number_uavs = 0
-        self.group = 1
         self._log = logging.getLogger()
         self._newer_group = True
+        self.lamport_clock = 0
+        self.last_releases = 0
+        self.group = 1
+
+        self.uavs_per_group = defaultdict(list)
 
     def handle_timer(self, timer: str) -> None:
-        self._log.info(f"There are {self.number_uavs} UAVs in the group")
-        message = self._build_energy_station_message()
-        self._broadcast(message)
+        if timer == EnergyStationOperation.CHANGE_GROUP.value:
+            self._log.info(f"There are {len(self.uavs_per_group[self.group])} UAVs in group {self.group}")
+            self._newer_group = True
+            self.group += 1
 
-        self.group += 1
-        self.number_uavs = 0
-        self._newer_group = True
+            if self.last_releases == 0:
+                message = self._build_energy_station_message()
+                self._broadcast(message)
 
     def handle_packet(self, message: str) -> None:
         message = DefaultMessage.model_validate_json(message)
         self._update_clock_on_receive(message.lamport_clock)
 
-        if message.label == Message.DEFAULT:
-            self.number_uavs += 1
+        if message.label == Message.NUMBER_NODES_CRITICAL_SECTION:
+            self.uavs_per_group[self.group].append(message.sender.id)
             if self._newer_group:
                 self._newer_group = False
                 self.provider.schedule_timer(
-                    "",
+                    EnergyStationOperation.CHANGE_GROUP.value,
                     self.provider.current_time() + 100
                 )
+
+        elif message.label == Message.RELEASE_CRITICAL_SECTION:
+            self.last_releases += 1
+            key = next(iter(self.uavs_per_group))
+            if self.last_releases == len(self.uavs_per_group[key]):
+                self.uavs_per_group.pop(key)
+                self.last_releases = 0
+                if self.uavs_per_group:
+                    self._reply_to_waiting_group()
 
     def _update_clock_on_receive(self, lamport_clock: int) -> None:
         new_lamport_cock = max(self.lamport_clock, lamport_clock) + 1
@@ -55,16 +69,25 @@ class EnergyStationProtocol(IProtocol):
     def finish(self) -> None:
         pass
 
-    def _build_energy_station_message(self) -> EnergyStationMessage:
+    def _build_energy_station_message(self) -> DefaultMessage:
+        key = next(iter(self.uavs_per_group))
         return EnergyStationMessage.model_construct(
             lamport_clock=self.lamport_clock,
             group=self.group,
-            number_uavs=self.number_uavs,
+            number_uavs=len(self.uavs_per_group[key]),
             sender=Sender.model_construct(
                 agent=Agent.ENERGY_STATION,
                 id=self.provider.get_id()
             ),
         )
+
+    def _reply_to_waiting_group(self):
+        key = next(iter(self.uavs_per_group))
+        message = self._build_energy_station_message()
+
+        for _id in self.uavs_per_group[key]:
+            command = SendMessageCommand(message.model_dump_json(), _id)
+            self.provider.send_communication_command(command)
 
     def _broadcast(self, message: DefaultMessage):
         command = BroadcastMessageCommand(message.model_dump_json())

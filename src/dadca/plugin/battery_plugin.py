@@ -54,6 +54,6 @@ class BatteryPlugin:
 
         if self.battery > 100:
             self.battery = 100
-            self._logger.info("Battery fully charged. Agent is returning to mission")
+            # self._logger.info("Battery fully charged. Agent is returning to mission")
 
 

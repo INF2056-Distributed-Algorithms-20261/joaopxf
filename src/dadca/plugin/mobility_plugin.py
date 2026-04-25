@@ -93,7 +93,7 @@ class MobilityPlugin:
         speed_command = SetSpeedMobilityCommand(self._configuration.speed)
         self._instance.provider.send_mobility_command(speed_command)
 
-        self._logger.info("Mission: Starting mission")
+        # self._logger.info("Mission: Starting mission")
 
     def move_to_position(self, position: NamedTuple) -> None:
         mobility_command = GotoCoordsMobilityCommand(*position)

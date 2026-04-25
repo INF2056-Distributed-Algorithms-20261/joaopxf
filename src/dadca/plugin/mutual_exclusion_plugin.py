@@ -7,7 +7,8 @@ from gradysim.protocol.plugin.dispatcher import create_dispatcher
 
 from src.dadca.config import ENERGY_STATION_ID
 from src.dadca.message.acknowledgement_message import AcknowledgementMessage
-from src.dadca.message.default_message import DefaultMessage
+from src.dadca.message.number_nodes_critical_section_message import NumberNodesCriticalSectionMessage
+from src.dadca.message.release_critical_section_message import ReleaseCriticalSectionMessage
 
 
 class MutualExclusionPlugin:
@@ -24,7 +25,10 @@ class MutualExclusionPlugin:
         self.waiter_nodes: list[int] = []
         self.acknowledgements: list[int] = []
 
-    def ask_number_nodes_to_reply(self, message: DefaultMessage):
+    def send_message_to_central_station(
+        self,
+        message: NumberNodesCriticalSectionMessage | ReleaseCriticalSectionMessage
+    ):
         command = SendMessageCommand(message.model_dump_json(), ENERGY_STATION_ID)
         self._instance.provider.send_communication_command(command)
 
@@ -50,3 +54,8 @@ class MutualExclusionPlugin:
             len(self.acknowledgements) == self.number_nodes - 1
             or self.number_nodes == 1
         )
+
+    def reset(self):
+        self.number_nodes = 0
+        self.waiter_nodes = []
+        self.acknowledgements = []
