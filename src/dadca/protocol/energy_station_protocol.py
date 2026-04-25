@@ -29,7 +29,6 @@ class EnergyStationProtocol(IProtocol):
 
     def handle_timer(self, timer: str) -> None:
         if timer == EnergyStationOperation.CHANGE_GROUP.value:
-            self._log.info(f"There are {len(self.uavs_per_group[self.group_number])} UAVs in group {self.group_number}")
             self._newer_group = True
             self.group_number += 1
 
@@ -55,7 +54,6 @@ class EnergyStationProtocol(IProtocol):
         elif message.label == Message.RELEASE_CRITICAL_SECTION:
             self.last_releases += 1
             key = next(iter(self.uavs_per_group))
-            self._log.info(f"Group {key} releases: {self.last_releases}/{len(self.uavs_per_group[key])}")
             if self.last_releases == len(self.uavs_per_group[key]):
                 self.uavs_per_group.pop(key)
                 self.last_releases = 0
@@ -88,7 +86,6 @@ class EnergyStationProtocol(IProtocol):
         message = self._build_energy_station_message(group)
 
         for _id in self.uavs_per_group[key]:
-            self._log.info(f"Sending message to {_id} from group {key}")
             command = SendMessageCommand(message.model_dump_json(), _id)
             self.provider.send_communication_command(command)
 
