@@ -26,17 +26,17 @@ def main():
     builder.add_node(SensorProtocol, (450, 0, 0))
 
     # Instantiating 5 UAVs
-    builder.add_node(UAVProtocol, (0, 0, 0))
-    builder.add_node(UAVProtocol, (0, 0, 0))
-    builder.add_node(UAVProtocol, (0, 0, 0))
-    builder.add_node(UAVProtocol, (0, 0, 0))
-    builder.add_node(UAVProtocol, (0, 0, 0))
+    builder.add_node(UAVProtocol, (250, -346.41, 0))
+    builder.add_node(UAVProtocol, (250, -346.41, 0))
+    builder.add_node(UAVProtocol, (250, -346.41, 0))
+    builder.add_node(UAVProtocol, (250, -346.41, 0))
+    builder.add_node(UAVProtocol, (250, -346.41, 0))
 
     # Instantiating ground station at (0,0,0)
-    builder.add_node(GroundStationProtocol, (0, 0, 0))
+    builder.add_node(GroundStationProtocol, (250, -346.41, 0))
 
     # Instantiating energy station
-    builder.add_node(EnergyStationProtocol, (225, 389.71, 0))
+    builder.add_node(EnergyStationProtocol, (250, 346.41, 0))
 
     # Adding required handlers
     builder.add_handler(TimerHandler())
