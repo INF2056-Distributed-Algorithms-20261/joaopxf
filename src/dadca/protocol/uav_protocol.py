@@ -151,7 +151,7 @@ class UAVProtocol(IProtocol):
             and self._mobility_plugin.initial_position
             and _has_reached(current_position, self._mobility_plugin.initial_position)
         ):
-w            self.ready_to_swap = True
+            self.ready_to_swap = True
             self.operation_stage = UAVOperation.DATA_COLLECTION
             self.provider.schedule_timer(self.operation_stage.value, self.provider.current_time())
 
