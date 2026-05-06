@@ -184,6 +184,14 @@ class UAVProtocol(IProtocol):
             self._mobility_plugin.start_mission(return_waypoint, PATH, return_direction)
 
         elif (
+            self.operation_stage == UAVOperation.DATA_COLLECTION
+            and self._battery_plugin.has_reached_critical_battery(current_position)
+        ):
+            self.ready_to_swap = False
+            self.operation_stage = UAVOperation.WAIT_FOR_RECHARGE
+            self._mobility_plugin.move_to_position(self.waiting_position)
+
+        elif (
             self.operation_stage == UAVOperation.WAIT_FOR_RECHARGE
             and _has_reached(current_position, self.waiting_position)
         ):
