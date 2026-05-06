@@ -9,7 +9,7 @@ from gradysim.protocol.position import squared_distance, Position
 from typing_extensions import NamedTuple
 
 from src.dadca.constant import UAVOperation, Message
-from src.dadca.config import initial_waypoints, PATH, NUMBER_UVAS, ENERGY_STATION_POSITION
+from src.dadca.config import initial_waypoints, PATH, NUMBER_UVAS, ENERGY_STATION_POSITION, GROUND_STATION_POSITION
 from src.dadca.constant import Agent
 from src.dadca.message.acknowledgement_message import AcknowledgementMessage
 from src.dadca.message.energy_station_message import EnergyStationMessage
@@ -37,7 +37,6 @@ class UAVProtocol(IProtocol):
     packet_count: int
     lamport_clock: int
     ready_to_swap: bool
-    energy_map: defaultdict[int, float]
     operation_stage: UAVOperation
 
     wait: float = 0
@@ -61,8 +60,6 @@ class UAVProtocol(IProtocol):
         self.lamport_clock = 0
         self.ready_to_swap = True
         self.operation_stage = UAVOperation.MISSION_START
-        self.energy_map = defaultdict(float)
-        self.energy_map[self.provider.get_id()] = self._battery_plugin.battery
         self.waiting_position = get_waiting_position(self.order)
         self.increase()
 
@@ -79,7 +76,7 @@ class UAVProtocol(IProtocol):
                 self._send_heartbeat(message)
 
         elif timer == UAVOperation.RECHARGE.value:
-            if self._battery_plugin.battery < 100:
+            if self._battery_plugin.get_battery() < 100:
                 self._battery_plugin.recharge_battery()
                 self.provider.schedule_timer(
                     UAVOperation.RECHARGE.value,
@@ -111,10 +108,24 @@ class UAVProtocol(IProtocol):
             message = InformationMessage.model_validate_json(message)
             self.packet_count += message.packet_count
             if default_message.sender.agent == Agent.UAV and self.ready_to_swap:
-                self.energy_map[message.sender.id] = message.battery
-                self._chose_action()
                 self._swap_direction()
                 self.ready_to_swap = False
+
+                for _id, battery in message.battery_map.items():
+                    self._battery_plugin.battery_map[_id] = battery
+
+                if (length := len(self._battery_plugin.battery_map)) == NUMBER_UVAS:
+                    index = self._get_sorted_index()
+
+                    if index == 1:
+                        self.operation_stage = UAVOperation.WAIT_FOR_RECHARGE
+                        self._mobility_plugin.move_to_position(self.waiting_position)
+                        return
+
+                    elif index == length:
+                        self._mobility_plugin.move_to_position(GROUND_STATION_POSITION)
+                        return
+
                 self.provider.schedule_timer("SWAP_DIRECTION", self.provider.current_time() + 2)
 
         elif default_message.label == Message.ENERGY_STATION:
@@ -163,32 +174,35 @@ class UAVProtocol(IProtocol):
             self.provider.schedule_timer(self.operation_stage.value, self.provider.current_time())
 
         elif (
-                self.operation_stage == UAVOperation.DATA_COLLECTION
-                and self._battery_plugin.has_reached_critical_battery(current_position)
+            self.operation_stage == UAVOperation.DATA_COLLECTION
+            and _has_reached(current_position, GROUND_STATION_POSITION)
         ):
-            self.ready_to_swap = False
-            self.operation_stage = UAVOperation.WAIT_FOR_RECHARGE
-            self._mobility_plugin.move_to_position(self.waiting_position)
+            self.ready_to_swap = True
+            self._battery_plugin.reinitialize_battery_map()
+            return_waypoint = self._mobility_plugin.current_waypoint
+            return_direction = self._mobility_plugin.current_direction
+            self._mobility_plugin.start_mission(return_waypoint, PATH, return_direction)
 
         elif (
-                self.operation_stage == UAVOperation.WAIT_FOR_RECHARGE
-                and _has_reached(current_position, self.waiting_position)
+            self.operation_stage == UAVOperation.WAIT_FOR_RECHARGE
+            and _has_reached(current_position, self.waiting_position)
         ):
+            self._battery_plugin.reinitialize_battery_map()
             message = self._build_number_nodes_critical_section_message()
             self._mutual_exclusion_plugin.send_message_to_central_station(message)
-            self._mutual_exclusion_plugin.priority = 1 / self._battery_plugin.battery
+            self._mutual_exclusion_plugin.priority = 1 / self._battery_plugin.get_battery()
             self.operation_stage = UAVOperation.RECHARGE
 
         elif (
-                self.operation_stage == UAVOperation.RECHARGE
-                and _has_reached(current_position, ENERGY_STATION_POSITION)
+            self.operation_stage == UAVOperation.RECHARGE
+            and _has_reached(current_position, ENERGY_STATION_POSITION)
         ):
             self.provider.schedule_timer(self.operation_stage.value, self.provider.current_time())
             self.operation_stage = UAVOperation.MISSION_START
 
     def _build_information_message(self) -> InformationMessage:
         return InformationMessage.model_construct(
-            battery=self._battery_plugin.battery,
+            battery_map=self._battery_plugin.battery_map,
             packet_count=self.packet_count,
             lamport_clock=self.lamport_clock,
             sender=Sender.model_construct(
@@ -256,23 +270,17 @@ class UAVProtocol(IProtocol):
         new_lamport_cock = max(self.lamport_clock, lamport_clock) + 1
         self.lamport_clock = new_lamport_cock
 
-    def _chose_action(self):
-        if (length := len(self.energy_map)) == NUMBER_UVAS:
-            _id = self.provider.get_id()
-            sorted_ids = sorted(self.energy_map.keys())
-            for index, sorted_id in enumerate(sorted_ids):
-                if _id == sorted_id:
-                    current_index = index
-                    break
-            else:
-                raise self._log.error(f"The {_id} must be in the sorted id list.")
-
-            if current_index < math.ceil(length * 0.3):
-
-
-
-
-
+    def _get_sorted_index(self) -> int:
+        _id = self.provider.get_id()
+        sorted_ids = sorted(
+            self._battery_plugin.battery_map,
+            key=lambda k: self._battery_plugin.battery_map[k]
+        )
+        for index, sorted_id in enumerate(sorted_ids, 1):
+            if _id == sorted_id:
+                return index
+        else:
+            raise self._log.error(f"The {_id} must be in the sorted id list.")
 
     def _swap_direction(self) -> None:
         if self.ready_to_swap:

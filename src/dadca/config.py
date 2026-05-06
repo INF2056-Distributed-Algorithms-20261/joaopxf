@@ -2,7 +2,6 @@ from geometry.point import Point
 
 initial_waypoints = [1, 2, 3, 4, 5]
 PATH = [
-    Point(250, -346.41, 15),
     Point(50, 0, 15),
     Point(100, 0, 15),
     Point(150, 0, 15),
@@ -15,4 +14,5 @@ NUMBER_UVAS = 5
 AERIAL_ENERGY_STATION_POSITION = Point(250, 346.41, 15)
 ENERGY_STATION_POSITION = Point(250, 346.41, 0)
 ENERGY_STATION_ID = 13
+GROUND_STATION_POSITION = Point(250, -346.41, 15)
 DIAMETER = 20
