@@ -1,4 +1,6 @@
 import logging
+import math
+from collections import defaultdict
 
 from gradysim.protocol.interface import IProtocol
 from gradysim.protocol.messages.communication import BroadcastMessageCommand
@@ -12,7 +14,7 @@ from src.dadca.constant import Agent
 from src.dadca.message.acknowledgement_message import AcknowledgementMessage
 from src.dadca.message.energy_station_message import EnergyStationMessage
 from src.dadca.message.number_nodes_critical_section_message import NumberNodesCriticalSectionMessage
-from src.dadca.message.packet_message import PacketMessage
+from src.dadca.message.information_message import InformationMessage
 from src.dadca.message.priority_critical_section_message import PriorityCriticalSectionMessage
 from src.dadca.message.release_critical_section_message import ReleaseCriticalSectionMessage
 from src.dadca.plugin.battery_configuration import BatteryConfiguration
@@ -35,6 +37,7 @@ class UAVProtocol(IProtocol):
     packet_count: int
     lamport_clock: int
     ready_to_swap: bool
+    energy_map: defaultdict[int, float]
     operation_stage: UAVOperation
 
     wait: float = 0
@@ -58,6 +61,8 @@ class UAVProtocol(IProtocol):
         self.lamport_clock = 0
         self.ready_to_swap = True
         self.operation_stage = UAVOperation.MISSION_START
+        self.energy_map = defaultdict(float)
+        self.energy_map[self.provider.get_id()] = self._battery_plugin.battery
         self.waiting_position = get_waiting_position(self.order)
         self.increase()
 
@@ -70,7 +75,7 @@ class UAVProtocol(IProtocol):
         elif timer == UAVOperation.DATA_COLLECTION.value:
             if self.operation_stage == UAVOperation.DATA_COLLECTION:
                 self.lamport_clock += 1
-                message = self._build_packet_message()
+                message = self._build_information_message()
                 self._send_heartbeat(message)
 
         elif timer == UAVOperation.RECHARGE.value:
@@ -102,10 +107,12 @@ class UAVProtocol(IProtocol):
         default_message = DefaultMessage.model_validate_json(message)
         self._update_clock_on_receive(default_message.lamport_clock)
 
-        if default_message.label == Message.PACKET:
-            message = PacketMessage.model_validate_json(message)
+        if default_message.label == Message.INFORMATION:
+            message = InformationMessage.model_validate_json(message)
             self.packet_count += message.packet_count
             if default_message.sender.agent == Agent.UAV and self.ready_to_swap:
+                self.energy_map[message.sender.id] = message.battery
+                self._chose_action()
                 self._swap_direction()
                 self.ready_to_swap = False
                 self.provider.schedule_timer("SWAP_DIRECTION", self.provider.current_time() + 2)
@@ -179,8 +186,9 @@ class UAVProtocol(IProtocol):
             self.provider.schedule_timer(self.operation_stage.value, self.provider.current_time())
             self.operation_stage = UAVOperation.MISSION_START
 
-    def _build_packet_message(self) -> PacketMessage:
-        return PacketMessage.model_construct(
+    def _build_information_message(self) -> InformationMessage:
+        return InformationMessage.model_construct(
+            battery=self._battery_plugin.battery,
             packet_count=self.packet_count,
             lamport_clock=self.lamport_clock,
             sender=Sender.model_construct(
@@ -247,6 +255,24 @@ class UAVProtocol(IProtocol):
     def _update_clock_on_receive(self, lamport_clock: int) -> None:
         new_lamport_cock = max(self.lamport_clock, lamport_clock) + 1
         self.lamport_clock = new_lamport_cock
+
+    def _chose_action(self):
+        if (length := len(self.energy_map)) == NUMBER_UVAS:
+            _id = self.provider.get_id()
+            sorted_ids = sorted(self.energy_map.keys())
+            for index, sorted_id in enumerate(sorted_ids):
+                if _id == sorted_id:
+                    current_index = index
+                    break
+            else:
+                raise self._log.error(f"The {_id} must be in the sorted id list.")
+
+            if current_index < math.ceil(length * 0.3):
+
+
+
+
+
 
     def _swap_direction(self) -> None:
         if self.ready_to_swap:

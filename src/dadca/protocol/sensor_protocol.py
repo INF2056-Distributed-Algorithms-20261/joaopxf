@@ -4,7 +4,7 @@ from gradysim.protocol.interface import IProtocol
 from gradysim.protocol.messages.communication import SendMessageCommand
 from gradysim.protocol.messages.telemetry import Telemetry
 
-from src.dadca.message.packet_message import PacketMessage
+from src.dadca.message.information_message import InformationMessage
 from src.dadca.message.default_message import Sender, DefaultMessage
 
 from src.dadca.constant import Agent
@@ -30,8 +30,8 @@ class SensorProtocol(IProtocol):
 
         if default_message.sender.agent == Agent.UAV:
             self.lamport_clock += 1
-            message = PacketMessage.model_validate_json(message)
-            response = PacketMessage.model_construct(
+            message = InformationMessage.model_validate_json(message)
+            response = InformationMessage.model_construct(
                 packet_count=self.packet_count,
                 lamport_clock=self.lamport_clock,
                 sender=Sender.model_construct(

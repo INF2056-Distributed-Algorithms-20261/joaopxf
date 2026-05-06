@@ -12,7 +12,7 @@ class Message(Enum):
     DEFAULT = auto()
     ENERGY_STATION = auto()
     NUMBER_NODES_CRITICAL_SECTION = auto()
-    PACKET = auto()
+    INFORMATION = auto()
     PRIORITY_CRITICAL_SECTION = auto()
     RELEASE_CRITICAL_SECTION = auto()
 
