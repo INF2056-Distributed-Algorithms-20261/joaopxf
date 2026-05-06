@@ -27,20 +27,20 @@ class GroundStationProtocol(IProtocol):
         default_message = DefaultMessage.model_validate_json(message)
         self._update_clock_on_receive(default_message.lamport_clock)
 
-        if default_message.sender.agent == Agent.UAV:
-            message = InformationMessage.model_validate_json(message)
-            self.packet_count += message.packet_count
-            self.lamport_clock += 1
-            response = InformationMessage.model_construct(
-                packet_count=self.packet_count,
-                lamport_clock=self.lamport_clock,
-                sender=Sender.model_construct(
-                    agent=Agent.GROUND_STATION,
-                    id=self.provider.get_id()
-                ),
-            )
-            command = SendMessageCommand(response.model_dump_json(), message.sender.id)
-            self.provider.send_communication_command(command)
+        # if default_message.sender.agent == Agent.UAV:
+        #     message = InformationMessage.model_validate_json(message)
+        #     self.packet_count += message.packet_count
+        #     self.lamport_clock += 1
+        #     response = InformationMessage.model_construct(
+        #         packet_count=self.packet_count,
+        #         lamport_clock=self.lamport_clock,
+        #         sender=Sender.model_construct(
+        #             agent=Agent.GROUND_STATION,
+        #             id=self.provider.get_id()
+        #         ),
+        #     )
+        #     command = SendMessageCommand(response.model_dump_json(), message.sender.id)
+        #     self.provider.send_communication_command(command)
 
     def _update_clock_on_receive(self, lamport_clock: int) -> None:
         new_lamport_cock = max(self.lamport_clock, lamport_clock) + 1

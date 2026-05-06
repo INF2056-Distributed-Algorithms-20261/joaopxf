@@ -13,6 +13,7 @@ from src.dadca.message.energy_station_message import DefaultMessage, EnergyStati
 class EnergyStationProtocol(IProtocol):
     _log: logging.Logger
     _newer_group: bool
+    _single_group: bool
     lamport_clock: int
     last_releases: int
     group_number: int
@@ -21,6 +22,7 @@ class EnergyStationProtocol(IProtocol):
     def initialize(self) -> None:
         self._log = logging.getLogger()
         self._newer_group = True
+        self._single_group = True
         self.lamport_clock = 0
         self.last_releases = 0
         self.group_number = 1
@@ -32,7 +34,7 @@ class EnergyStationProtocol(IProtocol):
             self._newer_group = True
             self.group_number += 1
 
-            if len(self.uavs_per_group) == 1:
+            if self._single_group:
                 key = next(iter(self.uavs_per_group))
                 group = self.uavs_per_group[key]
                 message = self._build_energy_station_message(group)
@@ -58,7 +60,10 @@ class EnergyStationProtocol(IProtocol):
                 self.uavs_per_group.pop(key)
                 self.last_releases = 0
                 if self.uavs_per_group:
+                    self._single_group = False
                     self._reply_to_waiting_group()
+                else:
+                    self._single_group = True
 
     def _update_clock_on_receive(self, lamport_clock: int) -> None:
         new_lamport_cock = max(self.lamport_clock, lamport_clock) + 1

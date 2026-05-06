@@ -1,14 +1,12 @@
 import logging
-import math
-from collections import defaultdict
 
 from gradysim.protocol.interface import IProtocol
-from gradysim.protocol.messages.communication import BroadcastMessageCommand
+from gradysim.protocol.messages.communication import BroadcastMessageCommand, SendMessageCommand
 from gradysim.protocol.messages.telemetry import Telemetry
 from gradysim.protocol.position import squared_distance, Position
 from typing_extensions import NamedTuple
 
-from src.dadca.constant import UAVOperation, Message
+from src.dadca.constant import UAVOperation, Message, Movement
 from src.dadca.config import initial_waypoints, PATH, NUMBER_UVAS, ENERGY_STATION_POSITION, GROUND_STATION_POSITION
 from src.dadca.constant import Agent
 from src.dadca.message.acknowledgement_message import AcknowledgementMessage
@@ -17,6 +15,7 @@ from src.dadca.message.number_nodes_critical_section_message import NumberNodesC
 from src.dadca.message.information_message import InformationMessage
 from src.dadca.message.priority_critical_section_message import PriorityCriticalSectionMessage
 from src.dadca.message.release_critical_section_message import ReleaseCriticalSectionMessage
+from src.dadca.message.welcome_message import WelcomeMessage
 from src.dadca.plugin.battery_configuration import BatteryConfiguration
 from src.dadca.plugin.battery_plugin import BatteryPlugin
 from src.dadca.plugin.mobility_configuration import MobilityConfiguration
@@ -36,6 +35,7 @@ class UAVProtocol(IProtocol):
     waiting_position: NamedTuple
     packet_count: int
     lamport_clock: int
+    reset_map: bool
     ready_to_swap: bool
     operation_stage: UAVOperation
 
@@ -58,7 +58,8 @@ class UAVProtocol(IProtocol):
 
         self.packet_count = 0
         self.lamport_clock = 0
-        self.ready_to_swap = True
+        self.reset_map = False
+        self.ready_to_swap = False
         self.operation_stage = UAVOperation.MISSION_START
         self.waiting_position = get_waiting_position(self.order)
         self.increase()
@@ -72,7 +73,7 @@ class UAVProtocol(IProtocol):
         elif timer == UAVOperation.DATA_COLLECTION.value:
             if self.operation_stage == UAVOperation.DATA_COLLECTION:
                 self.lamport_clock += 1
-                message = self._build_information_message()
+                message = self._build_welcome_message()
                 self._send_heartbeat(message)
 
         elif timer == UAVOperation.RECHARGE.value:
@@ -87,15 +88,12 @@ class UAVProtocol(IProtocol):
                 return_direction = self._mobility_plugin.current_direction
                 self._mobility_plugin.start_mission(return_waypoint, PATH, return_direction)
 
-                message = self._build_acknowledgement_message()
+                message = self._build_acknowledgement_message(entry_crtical_section=True)
                 self._mutual_exclusion_plugin.notify_waiter_nodes(message)
                 self._mutual_exclusion_plugin.reset()
 
                 message = self._build_release_critical_section_message()
                 self._mutual_exclusion_plugin.send_message_to_central_station(message)
-
-        elif timer == "SWAP_DIRECTION":
-            self.ready_to_swap = True
 
         else:
             raise NotImplementedError(f"There is no current support to timer {timer}")
@@ -104,29 +102,39 @@ class UAVProtocol(IProtocol):
         default_message = DefaultMessage.model_validate_json(message)
         self._update_clock_on_receive(default_message.lamport_clock)
 
+        if default_message.label == Message.WELCOME:
+            message = WelcomeMessage.model_validate_json(message)
+            reply = self._build_information_message()
+            command = SendMessageCommand(reply.model_dump_json(), message.sender.id)
+            self.provider.send_communication_command(command)
+
         if default_message.label == Message.INFORMATION:
             message = InformationMessage.model_validate_json(message)
             self.packet_count += message.packet_count
-            if default_message.sender.agent == Agent.UAV and self.ready_to_swap:
-                self._swap_direction()
-                self.ready_to_swap = False
+
+            if message.sender.agent == Agent.UAV:
+                reply = self._build_acknowledgement_message(information=True)
+                command = SendMessageCommand(reply.model_dump_json(), message.sender.id)
+                self.provider.send_communication_command(command)
+
+                if self._check_need_to_swap(message.direction, message.last_waypoint):
+                    self.ready_to_swap = True
 
                 for _id, battery in message.battery_map.items():
                     self._battery_plugin.battery_map[_id] = battery
 
-                if (length := len(self._battery_plugin.battery_map)) == NUMBER_UVAS:
+                if len(self._battery_plugin.battery_map) == NUMBER_UVAS:
                     index = self._get_sorted_index()
-
                     if index == 1:
                         self.operation_stage = UAVOperation.WAIT_FOR_RECHARGE
                         self._mobility_plugin.move_to_position(self.waiting_position)
-                        return
+                        self.ready_to_swap = False
+                        self.reset_map = True
 
-                    elif index == length:
+                    elif index == NUMBER_UVAS:
                         self._mobility_plugin.move_to_position(GROUND_STATION_POSITION)
-                        return
-
-                self.provider.schedule_timer("SWAP_DIRECTION", self.provider.current_time() + 2)
+                        self.ready_to_swap = False
+                        self.reset_map = True
 
         elif default_message.label == Message.ENERGY_STATION:
             message = EnergyStationMessage.model_validate_json(message)
@@ -143,14 +151,21 @@ class UAVProtocol(IProtocol):
             if self._mutual_exclusion_plugin.compare_priority(message.priority, _id):
                 self._mutual_exclusion_plugin.waiter_nodes.append(_id)
             else:
-                response = self._build_acknowledgement_message()
+                response = self._build_acknowledgement_message(entry_crtical_section=True)
                 self._mutual_exclusion_plugin.reply_node(response, _id)
 
         elif default_message.label == Message.ACKNOWLEDGEMENT:
             message = AcknowledgementMessage.model_validate_json(message)
-            self._mutual_exclusion_plugin.acknowledgements.append(message.sender.id)
-            if self._mutual_exclusion_plugin.check_all_acknowledgements():
-                self._mobility_plugin.move_to_position(ENERGY_STATION_POSITION)
+            if message.entry_critical_section:
+                self._mutual_exclusion_plugin.acknowledgements.append(message.sender.id)
+                if self._mutual_exclusion_plugin.check_all_acknowledgements():
+                    self._mobility_plugin.move_to_position(ENERGY_STATION_POSITION)
+            if message.information:
+                if self.reset_map:
+                    self._battery_plugin.reset_battery_map()
+                    self.reset_map = False
+                if self.ready_to_swap:
+                    self._swap_direction()
 
         elif default_message.sender.agent == Agent.GROUND_STATION:
             self.packet_count = 0
@@ -177,10 +192,9 @@ class UAVProtocol(IProtocol):
             self.operation_stage == UAVOperation.DATA_COLLECTION
             and _has_reached(current_position, GROUND_STATION_POSITION)
         ):
-            self.ready_to_swap = True
-            self._battery_plugin.reinitialize_battery_map()
             return_waypoint = self._mobility_plugin.current_waypoint
             return_direction = self._mobility_plugin.current_direction
+            self.operation_stage = UAVOperation.MISSION_START
             self._mobility_plugin.start_mission(return_waypoint, PATH, return_direction)
 
         elif (
@@ -188,6 +202,8 @@ class UAVProtocol(IProtocol):
             and self._battery_plugin.has_reached_critical_battery(current_position)
         ):
             self.ready_to_swap = False
+            self.reset_map = True
+            self._battery_plugin.reset_battery_map()
             self.operation_stage = UAVOperation.WAIT_FOR_RECHARGE
             self._mobility_plugin.move_to_position(self.waiting_position)
 
@@ -195,7 +211,6 @@ class UAVProtocol(IProtocol):
             self.operation_stage == UAVOperation.WAIT_FOR_RECHARGE
             and _has_reached(current_position, self.waiting_position)
         ):
-            self._battery_plugin.reinitialize_battery_map()
             message = self._build_number_nodes_critical_section_message()
             self._mutual_exclusion_plugin.send_message_to_central_station(message)
             self._mutual_exclusion_plugin.priority = 1 / self._battery_plugin.get_battery()
@@ -208,8 +223,19 @@ class UAVProtocol(IProtocol):
             self.provider.schedule_timer(self.operation_stage.value, self.provider.current_time())
             self.operation_stage = UAVOperation.MISSION_START
 
+    def _build_welcome_message(self):
+        return WelcomeMessage.model_construct(
+            lamport_clock=self.lamport_clock,
+            sender=Sender.model_construct(
+                agent=Agent.UAV,
+                id=self.provider.get_id()
+            )
+        )
+
     def _build_information_message(self) -> InformationMessage:
         return InformationMessage.model_construct(
+            direction=self._mobility_plugin.current_direction,
+            last_waypoint=self._mobility_plugin.last_waypoint,
             battery_map=self._battery_plugin.battery_map,
             packet_count=self.packet_count,
             lamport_clock=self.lamport_clock,
@@ -238,8 +264,14 @@ class UAVProtocol(IProtocol):
             )
         )
 
-    def _build_acknowledgement_message(self) -> AcknowledgementMessage:
+    def _build_acknowledgement_message(
+        self,
+        entry_crtical_section: bool = False,
+        information: bool = False,
+    ) -> AcknowledgementMessage:
         return AcknowledgementMessage.model_construct(
+            entry_critical_section=entry_crtical_section,
+            information=information,
             lamport_clock=self.lamport_clock,
             sender=Sender.model_construct(
                 agent=Agent.UAV,
@@ -290,11 +322,25 @@ class UAVProtocol(IProtocol):
         else:
             raise self._log.error(f"The {_id} must be in the sorted id list.")
 
+    def _check_need_to_swap(self, direction: Movement, last_waypoint: int) -> bool:
+        if (
+            self._mobility_plugin.current_direction == Movement.FORWARD
+            and direction == Movement.BACKWARD
+        ):
+            return self._mobility_plugin.last_waypoint <= last_waypoint
+        elif (
+            self._mobility_plugin.current_direction == Movement.BACKWARD
+            and direction == Movement.FORWARD
+        ):
+            return self._mobility_plugin.last_waypoint >= last_waypoint
+        else:
+            return False
+
     def _swap_direction(self) -> None:
-        if self.ready_to_swap:
-            self._mobility_plugin.reverse_direction()
-            self._mobility_plugin.change_current_waypoint()
-            self._mobility_plugin.travel_to_current_waypoint()
+        self._mobility_plugin.reverse_direction()
+        self._mobility_plugin.change_current_waypoint()
+        self._mobility_plugin.travel_to_current_waypoint()
+        self.ready_to_swap = False
 
     def finish(self) -> None:
         self._log.info(f"Final Lamport clock: {self.lamport_clock}")

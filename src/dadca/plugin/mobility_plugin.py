@@ -26,6 +26,7 @@ class MobilityPlugin:
         self._path: list[Position] | None = None
 
         self.initial_position: NamedTuple | None = None
+        self.last_waypoint: int | None = None
         self.current_waypoint: int | None = None
         self.current_direction: Movement | None = None
 
@@ -35,6 +36,7 @@ class MobilityPlugin:
                 self.current_waypoint is not None
                 and self.has_reached_target(telemetry.current_position)
             ):
+                self.last_waypoint = self.current_waypoint
                 self._progress_current_waypoint()
                 self.travel_to_current_waypoint()
 

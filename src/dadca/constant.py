@@ -15,6 +15,7 @@ class Message(Enum):
     INFORMATION = auto()
     PRIORITY_CRITICAL_SECTION = auto()
     RELEASE_CRITICAL_SECTION = auto()
+    WELCOME = auto()
 
 class Movement(Enum):
     FORWARD = 1

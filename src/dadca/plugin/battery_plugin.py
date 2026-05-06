@@ -44,7 +44,7 @@ class BatteryPlugin:
     def get_battery(self) -> float:
         return self.battery_map[self._id]
 
-    def reinitialize_battery_map(self):
+    def reset_battery_map(self):
         self.battery_map = {self._id: self.get_battery()}
 
     def has_reached_critical_battery(self, current_position: Position) -> bool:
