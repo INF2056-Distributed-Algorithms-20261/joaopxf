@@ -10,7 +10,11 @@ from src.dadca.plugin.battery_configuration import BatteryConfiguration
 
 
 class BatteryPlugin:
-    def __init__(self, protocol: IProtocol, configuration: BatteryConfiguration):
+    def __init__(
+        self, protocol: IProtocol,
+        configuration: BatteryConfiguration,
+        initial_battery: float,
+    ):
         self._dispatcher = create_dispatcher(protocol)
         self._instance = protocol
         self._configuration = configuration
@@ -18,7 +22,7 @@ class BatteryPlugin:
         self._previous_position = None
         self._id = self._instance.provider.get_id()
 
-        self.battery_map: dict[int, float] = {self._id: 100}
+        self.battery_map: dict[int, float] = {self._id: initial_battery}
 
         self._initialize_telemetry_handling()
 

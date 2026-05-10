@@ -1,4 +1,6 @@
 import logging
+import random
+from math import ceil
 
 from gradysim.protocol.interface import IProtocol
 from gradysim.protocol.messages.communication import BroadcastMessageCommand, SendMessageCommand
@@ -7,7 +9,8 @@ from gradysim.protocol.position import squared_distance, Position
 from typing_extensions import NamedTuple
 
 from src.dadca.constant import UAVOperation, Message, Movement
-from src.dadca.config import initial_waypoints, PATH, NUMBER_UVAS, ENERGY_STATION_POSITION, GROUND_STATION_POSITION
+from src.dadca.config import INITIAL_WAYPOINTS, PATH, NUMBER_UVAS, ENERGY_STATION_POSITION, GROUND_STATION_POSITION, \
+    MIN_NUMBER_INFORMATION
 from src.dadca.constant import Agent
 from src.dadca.message.acknowledgement_message import AcknowledgementMessage
 from src.dadca.message.energy_station_message import EnergyStationMessage
@@ -39,6 +42,7 @@ class UAVProtocol(IProtocol):
     ready_to_swap: bool
     operation_stage: UAVOperation
 
+    initial_battery: float = random.uniform(90, 100)
     wait: float = 0
     order: int = 1
 
@@ -50,10 +54,14 @@ class UAVProtocol(IProtocol):
     def increase(cls):
         cls.order += 1 if cls.order < NUMBER_UVAS else 1
 
+    @classmethod
+    def change_initial_battery(cls):
+        cls.initial_battery = random.uniform(80, 100)
+
     def initialize(self) -> None:
         self._log = logging.getLogger()
         self._mobility_plugin = MobilityPlugin(self, MobilityConfiguration())
-        self._battery_plugin = BatteryPlugin(self, BatteryConfiguration())
+        self._battery_plugin = BatteryPlugin(self, BatteryConfiguration(), self.initial_battery)
         self._mutual_exclusion_plugin = MutualExclusionPlugin(self)
 
         self.packet_count = 0
@@ -62,13 +70,15 @@ class UAVProtocol(IProtocol):
         self.ready_to_swap = False
         self.operation_stage = UAVOperation.MISSION_START
         self.waiting_position = get_waiting_position(self.order)
+
+        self.change_initial_battery()
         self.increase()
 
         self._start_flight()
 
     def handle_timer(self, timer: str) -> None:
         if timer == UAVOperation.MISSION_START.value:
-            self._mobility_plugin.start_mission(initial_waypoints.pop(), PATH)
+            self._mobility_plugin.start_mission(INITIAL_WAYPOINTS.pop(), PATH)
 
         elif timer == UAVOperation.DATA_COLLECTION.value:
             if self.operation_stage == UAVOperation.DATA_COLLECTION:
@@ -104,8 +114,8 @@ class UAVProtocol(IProtocol):
 
         if default_message.label == Message.WELCOME:
             message = WelcomeMessage.model_validate_json(message)
-            reply = self._build_information_message()
-            command = SendMessageCommand(reply.model_dump_json(), message.sender.id)
+            response = self._build_information_message()
+            command = SendMessageCommand(response.model_dump_json(), message.sender.id)
             self.provider.send_communication_command(command)
 
         if default_message.label == Message.INFORMATION:
@@ -113,8 +123,8 @@ class UAVProtocol(IProtocol):
             self.packet_count += message.packet_count
 
             if message.sender.agent == Agent.UAV:
-                reply = self._build_acknowledgement_message(information=True)
-                command = SendMessageCommand(reply.model_dump_json(), message.sender.id)
+                response = self._build_acknowledgement_message(information=True)
+                command = SendMessageCommand(response.model_dump_json(), message.sender.id)
                 self.provider.send_communication_command(command)
 
                 if self._check_need_to_swap(message.direction, message.last_waypoint):
@@ -123,18 +133,17 @@ class UAVProtocol(IProtocol):
                 for _id, battery in message.battery_map.items():
                     self._battery_plugin.battery_map[_id] = battery
 
-                if len(self._battery_plugin.battery_map) == NUMBER_UVAS:
+                number_information = len(self._battery_plugin.battery_map)
+                if number_information >= MIN_NUMBER_INFORMATION:
                     index = self._get_sorted_index()
-                    if index == 1:
-                        self.operation_stage = UAVOperation.WAIT_FOR_RECHARGE
-                        self._mobility_plugin.move_to_position(self.waiting_position)
+                    if index == 1 or index == number_information:
                         self.ready_to_swap = False
                         self.reset_map = True
-
-                    elif index == NUMBER_UVAS:
-                        self._mobility_plugin.move_to_position(GROUND_STATION_POSITION)
-                        self.ready_to_swap = False
-                        self.reset_map = True
+                        if index == 1:
+                            self.operation_stage = UAVOperation.WAIT_FOR_RECHARGE
+                            self._mobility_plugin.move_to_position(self.waiting_position)
+                        else:
+                            self._mobility_plugin.move_to_position(GROUND_STATION_POSITION)
 
         elif default_message.label == Message.ENERGY_STATION:
             message = EnergyStationMessage.model_validate_json(message)
@@ -192,6 +201,7 @@ class UAVProtocol(IProtocol):
             self.operation_stage == UAVOperation.DATA_COLLECTION
             and _has_reached(current_position, GROUND_STATION_POSITION)
         ):
+            self._battery_plugin.reset_battery_map()
             return_waypoint = self._mobility_plugin.current_waypoint
             return_direction = self._mobility_plugin.current_direction
             self.operation_stage = UAVOperation.MISSION_START
