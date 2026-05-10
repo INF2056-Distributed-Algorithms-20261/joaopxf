@@ -4,6 +4,7 @@ from gradysim.protocol.interface import IProtocol
 from gradysim.protocol.messages.communication import SendMessageCommand
 from gradysim.protocol.messages.telemetry import Telemetry
 
+from src.dadca.config import PACKET_SPAWN
 from src.dadca.message.information_message import InformationMessage
 from src.dadca.message.default_message import Sender, DefaultMessage
 
@@ -51,7 +52,7 @@ class SensorProtocol(IProtocol):
     def _generate_packet(self) -> None:
         self.packets.add(Packet())
         self.number_packets += 1
-        self.provider.schedule_timer("", self.provider.current_time() + 50)
+        self.provider.schedule_timer("", self.provider.current_time() + PACKET_SPAWN)
 
     def _update_clock_on_receive(self, lamport_clock: int) -> None:
         new_lamport_cock = max(self.lamport_clock, lamport_clock) + 1

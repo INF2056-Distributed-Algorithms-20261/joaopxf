@@ -12,7 +12,7 @@ from src.dadca.protocol.uav_protocol import UAVProtocol
 
 def main():
     config = SimulationConfiguration(
-        duration=3000
+        duration=1000
     )
     builder = SimulationBuilder(config)
 

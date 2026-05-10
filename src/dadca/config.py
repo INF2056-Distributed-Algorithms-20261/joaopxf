@@ -17,3 +17,4 @@ PATH = [
     Point(350, 0, 15),
     Point(450, 0, 15)
 ]
+PACKET_SPAWN = 4
