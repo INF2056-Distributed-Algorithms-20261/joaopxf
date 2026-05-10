@@ -1,6 +1,5 @@
 import logging
 import random
-from math import ceil
 
 from gradysim.protocol.interface import IProtocol
 from gradysim.protocol.messages.communication import BroadcastMessageCommand, SendMessageCommand
@@ -14,11 +13,13 @@ from src.dadca.config import INITIAL_WAYPOINTS, PATH, NUMBER_UVAS, ENERGY_STATIO
 from src.dadca.constant import Agent
 from src.dadca.message.acknowledgement_message import AcknowledgementMessage
 from src.dadca.message.energy_station_message import EnergyStationMessage
+from src.dadca.message.ground_station_message import GroundStationMessage
 from src.dadca.message.number_nodes_critical_section_message import NumberNodesCriticalSectionMessage
 from src.dadca.message.information_message import InformationMessage
 from src.dadca.message.priority_critical_section_message import PriorityCriticalSectionMessage
 from src.dadca.message.release_critical_section_message import ReleaseCriticalSectionMessage
 from src.dadca.message.welcome_message import WelcomeMessage
+from src.dadca.object.packet import Packet
 from src.dadca.plugin.battery_configuration import BatteryConfiguration
 from src.dadca.plugin.battery_plugin import BatteryPlugin
 from src.dadca.plugin.mobility_configuration import MobilityConfiguration
@@ -36,7 +37,7 @@ class UAVProtocol(IProtocol):
     _tolerance: float = 0.5
 
     waiting_position: NamedTuple
-    packet_count: int
+    packets: set[Packet]
     lamport_clock: int
     reset_map: bool
     ready_to_swap: bool
@@ -64,7 +65,7 @@ class UAVProtocol(IProtocol):
         self._battery_plugin = BatteryPlugin(self, BatteryConfiguration(), self.initial_battery)
         self._mutual_exclusion_plugin = MutualExclusionPlugin(self)
 
-        self.packet_count = 0
+        self.packets = set()
         self.lamport_clock = 0
         self.reset_map = False
         self.ready_to_swap = False
@@ -120,7 +121,7 @@ class UAVProtocol(IProtocol):
 
         if default_message.label == Message.INFORMATION:
             message = InformationMessage.model_validate_json(message)
-            self.packet_count += message.packet_count
+            self.packets.update(message.packets)
 
             if message.sender.agent == Agent.UAV:
                 response = self._build_acknowledgement_message(information=True)
@@ -176,8 +177,13 @@ class UAVProtocol(IProtocol):
                 if self.ready_to_swap:
                     self._swap_direction()
 
-        elif default_message.sender.agent == Agent.GROUND_STATION:
-            self.packet_count = 0
+        elif default_message.label == Message.GROUND_STATION:
+            message = GroundStationMessage.model_validate_json(message)
+            response = self._build_information_message()
+            command = SendMessageCommand(response.model_dump_json(), message.sender.id)
+            self.provider.send_communication_command(command)
+
+            self.packets.clear()
 
     def handle_telemetry(self, telemetry: Telemetry) -> None:
         current_position = telemetry.current_position
@@ -247,7 +253,7 @@ class UAVProtocol(IProtocol):
             direction=self._mobility_plugin.current_direction,
             last_waypoint=self._mobility_plugin.last_waypoint,
             battery_map=self._battery_plugin.battery_map,
-            packet_count=self.packet_count,
+            packets=self.packets,
             lamport_clock=self.lamport_clock,
             sender=Sender.model_construct(
                 agent=Agent.UAV,
@@ -353,4 +359,4 @@ class UAVProtocol(IProtocol):
         self.ready_to_swap = False
 
     def finish(self) -> None:
-        self._log.info(f"Final Lamport clock: {self.lamport_clock}")
+        pass

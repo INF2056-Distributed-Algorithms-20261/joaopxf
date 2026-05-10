@@ -11,6 +11,7 @@ class Message(Enum):
     ACKNOWLEDGEMENT = auto()
     DEFAULT = auto()
     ENERGY_STATION = auto()
+    GROUND_STATION = auto()
     NUMBER_NODES_CRITICAL_SECTION = auto()
     INFORMATION = auto()
     PRIORITY_CRITICAL_SECTION = auto()
