@@ -119,7 +119,7 @@ class UAVProtocol(IProtocol):
             command = SendMessageCommand(response.model_dump_json(), message.sender.id)
             self.provider.send_communication_command(command)
 
-        if default_message.label == Message.INFORMATION:
+        elif default_message.label == Message.INFORMATION:
             message = InformationMessage.model_validate_json(message)
             self.packets.update(message.packets)
 

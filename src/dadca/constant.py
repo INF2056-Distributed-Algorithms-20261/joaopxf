@@ -31,3 +31,7 @@ class UAVOperation(Enum):
 
 class EnergyStationOperation(Enum):
     CHANGE_GROUP = "CHANGE_GROUP"
+
+class SensorOperation(Enum):
+    DROP_PACKAGE = "DROP_PACKAGE"
+    GENERATE_PACKAGE = "GENERATE_PACKAGE"

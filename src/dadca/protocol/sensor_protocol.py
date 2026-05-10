@@ -4,11 +4,11 @@ from gradysim.protocol.interface import IProtocol
 from gradysim.protocol.messages.communication import SendMessageCommand
 from gradysim.protocol.messages.telemetry import Telemetry
 
-from src.dadca.config import PACKET_SPAWN
+from src.dadca.config import PACKET_SPAWN, PACKET_DROP
 from src.dadca.message.information_message import InformationMessage
 from src.dadca.message.default_message import Sender, DefaultMessage
 
-from src.dadca.constant import Agent, Message
+from src.dadca.constant import Agent, Message, SensorOperation
 from src.dadca.message.welcome_message import WelcomeMessage
 from src.dadca.object.packet import Packet
 
@@ -27,7 +27,14 @@ class SensorProtocol(IProtocol):
         self._generate_packet()
 
     def handle_timer(self, timer: str) -> None:
-        self._generate_packet()
+        if timer == SensorOperation.GENERATE_PACKAGE.value:
+            self._generate_packet()
+
+        elif timer == SensorOperation.DROP_PACKAGE.value:
+            try:
+                self.packets.pop()
+            except KeyError:
+                pass
 
     def handle_packet(self, message: str) -> None:
         default_message = DefaultMessage.model_validate_json(message)
@@ -52,7 +59,14 @@ class SensorProtocol(IProtocol):
     def _generate_packet(self) -> None:
         self.packets.add(Packet())
         self.number_packets += 1
-        self.provider.schedule_timer("", self.provider.current_time() + PACKET_SPAWN)
+        self.provider.schedule_timer(
+            SensorOperation.GENERATE_PACKAGE.value,
+            self.provider.current_time() + PACKET_SPAWN
+        )
+        self.provider.schedule_timer(
+            SensorOperation.DROP_PACKAGE.value,
+            self.provider.current_time() + PACKET_DROP
+        )
 
     def _update_clock_on_receive(self, lamport_clock: int) -> None:
         new_lamport_cock = max(self.lamport_clock, lamport_clock) + 1

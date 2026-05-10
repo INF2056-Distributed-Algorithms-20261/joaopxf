@@ -18,3 +18,4 @@ PATH = [
     Point(450, 0, 15)
 ]
 PACKET_SPAWN = 4
+PACKET_DROP=200
