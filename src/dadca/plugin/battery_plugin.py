@@ -10,14 +10,19 @@ from src.dadca.plugin.battery_configuration import BatteryConfiguration
 
 
 class BatteryPlugin:
-    def __init__(self, protocol: IProtocol, configuration: BatteryConfiguration):
+    def __init__(
+        self, protocol: IProtocol,
+        configuration: BatteryConfiguration,
+        initial_battery: float,
+    ):
         self._dispatcher = create_dispatcher(protocol)
         self._instance = protocol
         self._configuration = configuration
         self._logger = logging.getLogger()
         self._previous_position = None
+        self._id = self._instance.provider.get_id()
 
-        self.battery: float = 100
+        self.battery_map: dict[int, float] = {self._id: initial_battery}
 
         self._initialize_telemetry_handling()
 
@@ -27,7 +32,8 @@ class BatteryPlugin:
 
             if self._previous_position:
                 battery_cost = self._compute_battery_cost(self._previous_position, current_position)
-                self.battery -= battery_cost
+                for _id, battery in self.battery_map.items():
+                    self.battery_map[_id] -= battery_cost
 
             self._previous_position = current_position
 
@@ -39,21 +45,30 @@ class BatteryPlugin:
 
         return battery_cost
 
+    def get_battery(self) -> float:
+        return self.battery_map[self._id]
+
+    def reset_battery_map(self):
+        self.battery_map = {self._id: self.get_battery()}
+
     def has_reached_critical_battery(self, current_position: Position) -> bool:
         """
         Check if battery station is reacheable
 
         """
+        battery = self.get_battery()
         battery_cost = self._compute_battery_cost(current_position, ENERGY_STATION_POSITION)
 
-        return self.battery <= battery_cost + self._configuration.battery_tolerance
+        return battery <= battery_cost + self._configuration.battery_tolerance
 
     def recharge_battery(self):
-        if self.battery < 100:
-            self.battery += self._configuration.charge_per_time_rate
+        battery = self.get_battery()
 
-        if self.battery > 100:
-            self.battery = 100
+        if battery < 100:
+            self.battery_map[self._id] += self._configuration.charge_per_time_rate
+
+        if battery > 100:
+            self.battery_map[self._id] = 100
             # self._logger.info("Battery fully charged. Agent is returning to mission")
 
 
