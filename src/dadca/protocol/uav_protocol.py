@@ -28,6 +28,8 @@ from src.dadca.plugin.mobility_plugin import MobilityPlugin
 from src.dadca.plugin.mutual_exclusion_plugin import MutualExclusionPlugin
 from src.dadca.utils import get_waiting_position
 
+random.seed(15)
+
 
 class UAVProtocol(IProtocol):
     _log: logging.Logger

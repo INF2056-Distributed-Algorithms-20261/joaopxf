@@ -16,12 +16,14 @@ from src.dadca.object.packet import Packet
 class SensorProtocol(IProtocol):
     _log: logging.Logger
     packets: set[Packet]
+    lost_packets: int
     number_packets: int
     lamport_clock: int
 
     def initialize(self) -> None:
         self._log = logging.getLogger()
         self.packets = set()
+        self.lost_packets = 0
         self.number_packets = 0
         self.lamport_clock = 0
         self._generate_packet()
@@ -33,6 +35,7 @@ class SensorProtocol(IProtocol):
         elif timer == SensorOperation.DROP_PACKAGE.value:
             try:
                 self.packets.pop()
+                self.lost_packets += 1
             except KeyError:
                 pass
 
@@ -47,14 +50,16 @@ class SensorProtocol(IProtocol):
             response = self._build_information_message()
             command = SendMessageCommand(response.model_dump_json(), message.sender.id)
             self.provider.send_communication_command(command)
-
             self.packets.clear()
 
     def handle_telemetry(self, telemetry: Telemetry) -> None:
         pass
 
     def finish(self) -> None:
-        self._log.info(f"Number of packets generated: {self.number_packets}")
+        self._log.info(
+            f"Number of packets generated: {self.number_packets}"
+            f" and number of packets lost: {self.lost_packets}"
+        )
 
     def _generate_packet(self) -> None:
         self.packets.add(Packet())
