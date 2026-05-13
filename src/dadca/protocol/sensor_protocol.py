@@ -15,17 +15,19 @@ from src.dadca.object.packet import Packet
 
 class SensorProtocol(IProtocol):
     _log: logging.Logger
-    packets: set[Packet]
+    packets: dict[int, Packet]
     lost_packets: int
-    number_packets: int
+    generated_packets: int
     lamport_clock: int
+    drop_count: int
 
     def initialize(self) -> None:
         self._log = logging.getLogger()
-        self.packets = set()
+        self.packets = {}
         self.lost_packets = 0
-        self.number_packets = 0
+        self.generated_packets = 0
         self.lamport_clock = 0
+        self.drop_count = 0
         self._generate_packet()
 
     def handle_timer(self, timer: str) -> None:
@@ -33,8 +35,9 @@ class SensorProtocol(IProtocol):
             self._generate_packet()
 
         elif timer == SensorOperation.DROP_PACKAGE.value:
+            self.drop_count += 1
             try:
-                self.packets.pop()
+                self.packets.pop(self.drop_count)
                 self.lost_packets += 1
             except KeyError:
                 pass
@@ -57,13 +60,13 @@ class SensorProtocol(IProtocol):
 
     def finish(self) -> None:
         self._log.info(
-            f"Number of packets generated: {self.number_packets}"
+            f"Number of packets generated: {self.generated_packets}"
             f" and number of packets lost: {self.lost_packets}"
         )
 
     def _generate_packet(self) -> None:
-        self.packets.add(Packet())
-        self.number_packets += 1
+        self.generated_packets += 1
+        self.packets[self.generated_packets] = Packet()
         self.provider.schedule_timer(
             SensorOperation.GENERATE_PACKAGE.value,
             self.provider.current_time() + PACKET_SPAWN
@@ -79,10 +82,17 @@ class SensorProtocol(IProtocol):
 
     def _build_information_message(self) -> InformationMessage:
         return InformationMessage.model_construct(
-            packets=self.packets,
+            packets=self._get_packet_set(),
             lamport_clock=self.lamport_clock,
             sender=Sender.model_construct(
                 agent=Agent.SENSOR,
                 id=self.provider.get_id()
             )
         )
+
+    def _get_packet_set(self) -> set[Packet]:
+        packets = set()
+        for packet in self.packets.values():
+            packets.add(packet)
+
+        return packets
