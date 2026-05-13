@@ -44,6 +44,8 @@ class UAVProtocol(IProtocol):
     reset_map: bool
     ready_to_swap: bool
     operation_stage: UAVOperation
+    initial_time: float
+    waiting_time: float
 
     initial_battery: float = random.uniform(90, 100)
     wait: float = 0
@@ -73,6 +75,8 @@ class UAVProtocol(IProtocol):
         self.ready_to_swap = False
         self.operation_stage = UAVOperation.MISSION_START
         self.waiting_position = get_waiting_position(self.order)
+        self.initial_time = 0
+        self.waiting_time = 0
 
         self.change_initial_battery()
         self.increase()
@@ -229,6 +233,7 @@ class UAVProtocol(IProtocol):
             self.operation_stage == UAVOperation.WAIT_FOR_RECHARGE
             and _has_reached(current_position, self.waiting_position)
         ):
+            self.initial_time = self.provider.current_time()
             message = self._build_number_nodes_critical_section_message()
             self._mutual_exclusion_plugin.send_message_to_central_station(message)
             self._mutual_exclusion_plugin.priority = 1 / self._battery_plugin.get_battery()
@@ -238,6 +243,7 @@ class UAVProtocol(IProtocol):
             self.operation_stage == UAVOperation.RECHARGE
             and _has_reached(current_position, ENERGY_STATION_POSITION)
         ):
+            self.waiting_time += self.provider.current_time() - self.initial_time
             self.provider.schedule_timer(self.operation_stage.value, self.provider.current_time())
             self.operation_stage = UAVOperation.MISSION_START
 
@@ -361,4 +367,4 @@ class UAVProtocol(IProtocol):
         self.ready_to_swap = False
 
     def finish(self) -> None:
-        pass
+        self._log.info(f"Total waiting to recharge: {self.waiting_time}")
